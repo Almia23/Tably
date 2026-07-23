@@ -173,10 +173,8 @@ export default function LedgerPage() {
             </ul>
             <div className="mt-2 flex flex-col gap-0.5 border-t pt-2 text-xs text-muted-foreground">
               <span className="flex justify-between">
-                <span>Tax</span> <span>₹{table.taxAmount.toFixed(2)}</span>
-              </span>
-              <span className="flex justify-between">
-                <span>Tip</span> <span>₹{table.tipAmount.toFixed(2)}</span>
+                <span>Tax &amp; tip</span>{" "}
+                <span>₹{(table.taxAmount + table.tipAmount).toFixed(2)}</span>
               </span>
               <span className="flex justify-between font-medium text-foreground">
                 <span>Total</span> <span>₹{grandTotal.toFixed(2)}</span>

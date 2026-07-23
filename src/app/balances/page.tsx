@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation";
+import { ArrowDownLeft, ArrowUpRight, Scale, Wallet } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 /**
  * Persistent pairwise balances across every Table the user has been in
@@ -59,56 +62,109 @@ export default async function BalancesPage() {
     .sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
 
   const totalNet = rows.reduce((sum, r) => sum + r.net, 0);
+  const youOwe = rows.filter((r) => r.net < 0).reduce((sum, r) => sum + Math.abs(r.net), 0);
+  const owedToYou = rows.filter((r) => r.net > 0).reduce((sum, r) => sum + r.net, 0);
 
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-10">
-      <h1 className="mb-2 text-2xl font-semibold">Your balances</h1>
-      <p className="mb-6 text-sm text-black/60 dark:text-white/60">
-        Across every Table you&apos;ve settled, not yet marked paid.
-      </p>
+      <div className="mb-6 flex flex-col gap-1">
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Your balances</h1>
+        <p className="text-sm text-muted-foreground">
+          Across every Table you&apos;ve settled, not yet marked paid.
+        </p>
+      </div>
 
       {rows.length === 0 ? (
-        <p className="text-black/60 dark:text-white/60">
-          All settled up! Nothing outstanding right now.
-        </p>
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
+            <span className="flex size-14 items-center justify-center rounded-full bg-owed/15 text-owed">
+              <Scale className="size-6" />
+            </span>
+            <div className="flex flex-col gap-1">
+              <p className="font-medium">All settled up!</p>
+              <p className="text-sm text-muted-foreground">
+                Nothing outstanding right now.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
       ) : (
         <>
-          <ul className="flex flex-col gap-2">
-            {rows.map((r) => (
-              <li
-                key={r.key}
-                className="flex items-center justify-between rounded-lg border border-black/10 px-4 py-3 dark:border-white/15"
-              >
-                <span>
-                  {r.name}
-                  {r.approximate && (
-                    <span className="ml-1 text-xs text-black/40 dark:text-white/40">
-                      (guest, approximate)
-                    </span>
-                  )}
+          {/* Summary strip: quick at-a-glance totals before the itemized list. */}
+          <div className="mb-6 grid grid-cols-3 gap-3">
+            <Card size="sm">
+              <CardContent className="flex flex-col items-center gap-1 text-center">
+                <ArrowDownLeft className="size-4 text-owed" />
+                <span className="text-lg font-semibold tabular-nums text-owed">
+                  ${owedToYou.toFixed(2)}
                 </span>
+                <span className="text-xs text-muted-foreground">Owed to you</span>
+              </CardContent>
+            </Card>
+            <Card size="sm">
+              <CardContent className="flex flex-col items-center gap-1 text-center">
+                <ArrowUpRight className="size-4 text-owe" />
+                <span className="text-lg font-semibold tabular-nums text-owe">
+                  ${youOwe.toFixed(2)}
+                </span>
+                <span className="text-xs text-muted-foreground">You owe</span>
+              </CardContent>
+            </Card>
+            <Card size="sm">
+              <CardContent className="flex flex-col items-center gap-1 text-center">
+                <Wallet className="size-4 text-primary" />
                 <span
-                  className={
-                    r.net > 0
-                      ? "font-medium text-green-700 dark:text-green-400"
-                      : "font-medium text-red-600 dark:text-red-400"
-                  }
+                  className={`text-lg font-semibold tabular-nums ${
+                    totalNet >= 0 ? "text-owed" : "text-owe"
+                  }`}
                 >
-                  {r.net > 0
-                    ? `owes you $${r.net.toFixed(2)}`
-                    : `you owe $${Math.abs(r.net).toFixed(2)}`}
+                  {totalNet >= 0 ? "+" : "-"}${Math.abs(totalNet).toFixed(2)}
                 </span>
+                <span className="text-xs text-muted-foreground">Net overall</span>
+              </CardContent>
+            </Card>
+          </div>
+
+          <ul className="flex flex-col gap-2.5">
+            {rows.map((r) => (
+              <li key={r.key}>
+                <Card>
+                  <CardContent className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`flex size-8 shrink-0 items-center justify-center rounded-full ${
+                          r.net > 0 ? "bg-owed/15 text-owed" : "bg-owe/15 text-owe"
+                        }`}
+                      >
+                        {r.net > 0 ? (
+                          <ArrowDownLeft className="size-4" />
+                        ) : (
+                          <ArrowUpRight className="size-4" />
+                        )}
+                      </span>
+                      <span className="font-medium">
+                        {r.name}
+                        {r.approximate && (
+                          <Badge variant="outline" className="ml-1.5 text-muted-foreground">
+                            guest, approx.
+                          </Badge>
+                        )}
+                      </span>
+                    </div>
+                    <span
+                      className={`font-semibold tabular-nums ${
+                        r.net > 0 ? "text-owed" : "text-owe"
+                      }`}
+                    >
+                      {r.net > 0
+                        ? `owes you $${r.net.toFixed(2)}`
+                        : `you owe $${Math.abs(r.net).toFixed(2)}`}
+                    </span>
+                  </CardContent>
+                </Card>
               </li>
             ))}
           </ul>
-          <p className="mt-6 text-sm text-black/60 dark:text-white/60">
-            Net overall:{" "}
-            <span className="font-medium">
-              {totalNet >= 0
-                ? `you're owed $${totalNet.toFixed(2)}`
-                : `you owe $${Math.abs(totalNet).toFixed(2)}`}
-            </span>
-          </p>
         </>
       )}
     </main>

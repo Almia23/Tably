@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { ArrowRight, Receipt, Users, Split, Sparkles } from "lucide-react";
+import { ArrowRight, Receipt, Users, Split } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,7 +13,7 @@ const STEPS = [
   {
     icon: Receipt,
     title: "Snap the receipt",
-    body: "Upload a photo and Tably's LLM parses every item, tax, and tip automatically.",
+    body: "Upload a photo and Tably's LLM parses every item and tax automatically.",
   },
   {
     icon: Users,
@@ -47,9 +47,6 @@ export default function Home() {
       <div className="relative mx-auto flex max-w-4xl flex-col items-center gap-16 px-4 py-16 text-center sm:py-24">
         {/* Hero */}
         <div className="flex flex-col items-center gap-6">
-          <span className="table-code-badge">
-            <Sparkles className="size-4" /> LLM-powered splitting
-          </span>
           <h1 className="text-4xl font-bold tracking-tight sm:text-6xl">
             🍽️ Tably
           </h1>

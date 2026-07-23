@@ -11,8 +11,8 @@ export function NavBar() {
   return (
     <header className="border-b bg-card">
       <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
-        <Link href="/" className="link-affordance font-semibold tracking-tight text-foreground">
-          🍽️ Tably
+        <Link href="/" className="link-affordance text-xl font-bold tracking-tight text-foreground">
+          Tably
         </Link>
         <nav className="flex items-center gap-4 text-sm">
           {status === "authenticated" && session?.user ? (
