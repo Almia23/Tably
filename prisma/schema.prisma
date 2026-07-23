@@ -8,17 +8,9 @@ generator client {
 }
 
 datasource db {
-  // NOTE: SQLite for local dev. For Phase 6 deployment (Neon Postgres), change
-  // provider to "postgresql", then run `npx prisma migrate dev` once against
-  // the Neon connection string to (re-)generate Postgres-flavored migration
-  // SQL (SQLite and Postgres migration files aren't interchangeable, even
-  // though the schema itself needs no changes — it avoids SQLite-only
-  // features on purpose). If using Neon's pooled connection string for
-  // DATABASE_URL, also add `directUrl = env("DIRECT_URL")` here pointing at
-  // Neon's *unpooled* connection string, since Prisma Migrate needs a direct
-  // connection. See README.md's Deployment section for the exact steps.
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ---------------------------------------------------------------------------
