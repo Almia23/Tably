@@ -1,0 +1,228 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // NOTE: SQLite for local dev. For Phase 6 deployment (Neon Postgres), change
+  // provider to "postgresql", then run `npx prisma migrate dev` once against
+  // the Neon connection string to (re-)generate Postgres-flavored migration
+  // SQL (SQLite and Postgres migration files aren't interchangeable, even
+  // though the schema itself needs no changes — it avoids SQLite-only
+  // features on purpose). If using Neon's pooled connection string for
+  // DATABASE_URL, also add `directUrl = env("DIRECT_URL")` here pointing at
+  // Neon's *unpooled* connection string, since Prisma Migrate needs a direct
+  // connection. See README.md's Deployment section for the exact steps.
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth (NextAuth.js / Auth.js) — standard adapter models for logged-in users.
+// Guests never get a User row; they're identified by guestName + guestToken
+// scoped to a single Bill via Participant (see below).
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String? // credentials-auth only; null for OAuth-only accounts
+  createdAt     DateTime  @default(now())
+
+  accounts     Account[]
+  sessions     Session[]
+  participants Participant[]
+  billsCreated Bill[]        @relation("BillCreatedBy")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------------------------------------------------------------------------
+// Core domain model
+// ---------------------------------------------------------------------------
+
+enum BillStatus {
+  OPEN
+  CLOSED
+}
+
+enum SettlementView {
+  SIMPLIFIED
+  INDIVIDUAL
+}
+
+enum TaxTipSplitMode {
+  EVEN
+  PROPORTIONAL
+}
+
+enum AuditActionType {
+  BILL_CREATED
+  PARTICIPANT_JOINED
+  ITEM_ADDED
+  ITEM_EDITED
+  CLAIM_SAVED
+  CLAIM_EDITED
+  ITEM_BECAME_SHARED
+  CLARIFICATION_RAISED
+  CLARIFICATION_RESOLVED
+  PARTICIPANT_COUNT_CHANGED
+  PAYER_CHANGED
+  TAB_CLOSED
+  TAB_REOPENED
+  SETTLEMENT_MARKED_PAID
+  PARTICIPANT_LINKED_ACCOUNT
+}
+
+/// A "Table" from the plan: one bill-splitting session tied to a single receipt.
+model Bill {
+  id                   String          @id @default(cuid())
+  tableCode            String          @unique
+  groupLabel           String?
+  imageUrl             String?
+  rawLlmOutput         String? // JSON string; SQLite has no native JSON type
+  parseConfidence      Float?
+  taxAmount            Float           @default(0)
+  tipAmount            Float           @default(0)
+  taxTipSplit          TaxTipSplitMode @default(EVEN)
+  paidByParticipantId  String?
+  expectedParticipants Int
+  status               BillStatus      @default(OPEN)
+  createdByUserId      String?
+  createdAt            DateTime        @default(now())
+  closedAt             DateTime?
+
+  createdByUser User?         @relation("BillCreatedBy", fields: [createdByUserId], references: [id])
+  paidBy        Participant?  @relation("BillPaidBy", fields: [paidByParticipantId], references: [id])
+  participants  Participant[]
+  items         BillItem[]
+  settlements   Settlement[]
+  auditLogs     AuditLog[]
+}
+
+/// Unifies logged-in users and guests within the scope of one Bill so every
+/// other model (Claim, AuditLog, Settlement) can reference a single id
+/// regardless of whether the actor has an account.
+model Participant {
+  id          String   @id @default(cuid())
+  billId      String
+  userId      String? // set if logged in
+  guestName   String? // set if guest
+  guestToken  String? // opaque session token, scoped to this bill
+  displayName String // final disambiguated name shown in UI (handles "Raj" vs "Raj (2)")
+  joinedAt    DateTime @default(now())
+  hasSaved    Boolean  @default(false) // "nothing to claim" or claims saved
+
+  bill           Bill         @relation(fields: [billId], references: [id], onDelete: Cascade)
+  user           User?        @relation(fields: [userId], references: [id])
+  claims         Claim[]
+  itemsAdded     BillItem[]   @relation("ItemAddedBy")
+  billsPaidFor   Bill[]       @relation("BillPaidBy")
+  settlementsOut Settlement[] @relation("SettlementFrom")
+  settlementsIn  Settlement[] @relation("SettlementTo")
+  auditLogs      AuditLog[]
+
+  @@unique([billId, guestToken])
+}
+
+model BillItem {
+  id                   String   @id @default(cuid())
+  billId               String
+  name                 String
+  price                Float
+  quantity             Int      @default(1)
+  addedByParticipantId String?
+  lowConfidence        Boolean  @default(false)
+  createdAt            DateTime @default(now())
+
+  bill    Bill         @relation(fields: [billId], references: [id], onDelete: Cascade)
+  addedBy Participant? @relation("ItemAddedBy", fields: [addedByParticipantId], references: [id])
+  claims  Claim[]
+}
+
+/// A participant's claim on an item. `shareFraction` lets an item be split
+/// N ways (e.g. 0.5 for two people); multiple Claims can point at one item.
+model Claim {
+  id            String   @id @default(cuid())
+  itemId        String
+  participantId String
+  shareFraction Float    @default(1)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  item        BillItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  participant Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, participantId])
+}
+
+model Settlement {
+  id                String         @id @default(cuid())
+  billId            String
+  fromParticipantId String
+  toParticipantId   String
+  amount            Float
+  settled           Boolean        @default(false)
+  settledAt         DateTime?
+  viewMode          SettlementView
+
+  bill Bill        @relation(fields: [billId], references: [id], onDelete: Cascade)
+  from Participant @relation("SettlementFrom", fields: [fromParticipantId], references: [id])
+  to   Participant @relation("SettlementTo", fields: [toParticipantId], references: [id])
+}
+
+/// Powers the Ledger (activity feed). Every mutation is logged against
+/// whichever Participant performed it, guest or logged-in.
+model AuditLog {
+  id            String          @id @default(cuid())
+  billId        String
+  participantId String?
+  actionType    AuditActionType
+  targetId      String?
+  details       String? // JSON string
+  createdAt     DateTime        @default(now())
+
+  bill        Bill         @relation(fields: [billId], references: [id], onDelete: Cascade)
+  participant Participant? @relation(fields: [participantId], references: [id])
+}

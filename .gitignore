@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# prisma local sqlite db (not needed once deployed on Neon/Postgres)
+/prisma/*.db
+/prisma/*.db-journal
