@@ -68,8 +68,15 @@ export default function OrderPage() {
     // "Saved my order" is a personal, no-side-effect-on-others action, so it
     // gets a toast instead of a Ledger feed entry (3.4) — the feed only
     // shows things that change shared state.
-    if (res) toast.success("Order saved");
-    else toast.error("Couldn't save — check your connection and try again.");
+    if (res) {
+      toast.success("Order saved");
+      // Once someone's done claiming, send them to the Ledger so they can
+      // watch the running activity/settlement history instead of staying
+      // stuck on a now-inert "Order saved" screen.
+      router.push(`/table/${code}`);
+    } else {
+      toast.error("Couldn't save — check your connection and try again.");
+    }
     refresh();
   }
 

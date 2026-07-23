@@ -64,8 +64,10 @@ export function describeAudit(
       return "Final split generated — Tab closed";
     case "TAB_REOPENED":
       return "Tab reopened";
-    case "SETTLEMENT_MARKED_PAID":
-      return `A settlement of ₹${details.amount ?? "?"} was marked as paid`;
+    case "SETTLEMENT_MARKED_PAID": {
+      const actorName = (details.displayName as string | undefined) ?? nameOf(log.participantId);
+      return `${actorName} marked a settlement of ₹${details.amount ?? "?"} as paid`;
+    }
     case "CLARIFICATION_RAISED":
       return `Low confidence on "${details.name}" — needs a quick check`;
     case "CLARIFICATION_RESOLVED":

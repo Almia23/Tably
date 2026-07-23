@@ -212,7 +212,7 @@ export default function LedgerPage() {
             {readyToClose && unresolvedClarifications.length === 0 && (
               <Alert className="mb-2 border-owed/40 bg-owed/10 text-owed">
                 <AlertDescription className="text-owed">
-                  {joinedCount}/{table.expectedParticipants} joined, everyone&apos;s saved — ready
+                  {joinedCount}/{table.expectedParticipants} joined, everyone&apos;s saved. Ready
                   to close the tab!
                 </AlertDescription>
               </Alert>
@@ -311,7 +311,7 @@ export default function LedgerPage() {
                         </strong>
                         {s.settled ? (
                           <Badge className="gap-1 bg-owed text-owed-foreground">
-                            <Check className="size-3" /> settled
+                            <Check className="size-3" /> Settled
                           </Badge>
                         ) : (
                           <Button size="xs" variant="ghost" onClick={() => markSettled(s.id)}>
