@@ -21,9 +21,11 @@ type Row = { checked: boolean; amount: string };
  * which is what lets the "Individual" settlement view meaningfully differ
  * from "Simplified": each consumer ends up owing every payer their
  * proportional share, instead of there being just one creditor. A live
- * running total vs. the bill's grand total is shown as a guide, but isn't
- * blocking here — items can still change while the Table's open; the exact
- * match is only enforced when actually closing the Tab.
+ * running total vs. the bill's grand total is shown as a guide, and Save is
+ * blocked until it matches exactly (mirrors the same check the server makes
+ * at Close-the-Tab time, just surfaced earlier so it isn't a surprise).
+ * "Split evenly" is a one-click shortcut that checks everyone and divides
+ * the total across them (handling the rounding remainder on the last row).
  */
 export function EditPayerDialog({
   participants,
@@ -95,12 +97,41 @@ export function EditPayerDialog({
     setRows((prev) => ({ ...prev, [id]: { ...prev[id], amount: remaining.toFixed(2) } }));
   }
 
+  /** Quick default: check everyone and divide the bill total evenly across
+   * them, handling the rounding remainder on the last row so the split still
+   * sums exactly to the grand total. */
+  function splitEvenly() {
+    const ids = participants.map((p) => p.id);
+    if (ids.length === 0) return;
+    const share = Math.floor((grandTotal / ids.length) * 100) / 100;
+    const remainder = Math.round((grandTotal - share * ids.length) * 100) / 100;
+    setRows((prev) => {
+      const next = { ...prev };
+      ids.forEach((id, i) => {
+        const amount = i === ids.length - 1 ? share + remainder : share;
+        next[id] = { checked: true, amount: amount.toFixed(2) };
+      });
+      return next;
+    });
+    setError(null);
+  }
+
+  const mismatch = Math.abs(diff) >= 0.01;
+
   async function handleSave() {
     const payments = checkedIds
       .map((id) => ({ participantId: id, amount: Number(rows[id]?.amount) || 0 }))
       .filter((p) => p.amount > 0);
     if (payments.length === 0) {
       setError("Pick at least one person who paid, with an amount above ₹0.");
+      return;
+    }
+    if (mismatch) {
+      setError(
+        diff > 0
+          ? `₹${diff.toFixed(2)} of the ₹${grandTotal.toFixed(2)} total is still unaccounted for — add it to someone's amount, or use "Split evenly".`
+          : `Payments are ₹${Math.abs(diff).toFixed(2)} over the ₹${grandTotal.toFixed(2)} total — trim someone's amount down.`,
+      );
       return;
     }
     setError(null);
@@ -132,6 +163,10 @@ export function EditPayerDialog({
             than one person can split the payment itself.
           </DialogDescription>
         </DialogHeader>
+
+        <Button type="button" variant="outline" size="sm" className="self-start" onClick={splitEvenly}>
+          Split evenly
+        </Button>
 
         <fieldset className="flex flex-col gap-2">
           <legend className="sr-only">Who paid</legend>
@@ -181,7 +216,7 @@ export function EditPayerDialog({
         </fieldset>
 
         <p
-          className={`text-xs ${Math.abs(diff) < 0.01 ? "text-owed" : "text-muted-foreground"}`}
+          className={`text-xs ${Math.abs(diff) < 0.01 ? "text-owed" : "font-medium text-destructive"}`}
         >
           {Math.abs(diff) < 0.01
             ? `Matches the bill total (₹${grandTotal.toFixed(2)}).`
@@ -195,7 +230,7 @@ export function EditPayerDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button onClick={handleSave} disabled={saving || mismatch}>
             {saving ? "Saving…" : "Save"}
           </Button>
         </DialogFooter>

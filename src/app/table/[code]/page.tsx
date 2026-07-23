@@ -50,6 +50,7 @@ export default function LedgerPage() {
   const [settlementView, setSettlementView] = useState<"SIMPLIFIED" | "INDIVIDUAL">("SIMPLIFIED");
   const [copyLabel, setCopyLabel] = useState<"idle" | "copied">("idle");
   const [showCloseWarning, setShowCloseWarning] = useState(false);
+  const [closeError, setCloseError] = useState<string | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
   const wasNearBottom = useRef(true);
 
@@ -92,9 +93,16 @@ export default function LedgerPage() {
   const readyToClose = joinedCount >= table.expectedParticipants && allSaved;
   const notSaved = table.participants.filter((p) => !p.hasSaved);
   const unresolvedClarifications = table.items.filter((it) => it.lowConfidence);
+  const unclaimedItems = table.items.filter((it) => it.claims.length === 0);
 
   async function closeTab() {
-    await authedFetch(`/api/tables/${code}/finalize`);
+    const res = await authedFetch(`/api/tables/${code}/finalize`);
+    if (!res || !res.ok) {
+      const body = await res?.json().catch(() => ({}));
+      setCloseError(body?.error ?? "Couldn't close the Tab — try again.");
+      return;
+    }
+    setCloseError(null);
     setShowCloseWarning(false);
     refresh();
   }
@@ -217,7 +225,7 @@ export default function LedgerPage() {
 
         {table.status === "OPEN" ? (
           <div className="rounded-lg border p-3">
-            {readyToClose && unresolvedClarifications.length === 0 && (
+            {readyToClose && unresolvedClarifications.length === 0 && unclaimedItems.length === 0 && (
               <Alert className="mb-2 border-owed/40 bg-owed/10 text-owed">
                 <AlertDescription className="text-owed">
                   {joinedCount}/{table.expectedParticipants} joined, everyone&apos;s saved. Ready
@@ -225,15 +233,29 @@ export default function LedgerPage() {
                 </AlertDescription>
               </Alert>
             )}
+            {unclaimedItems.length > 0 && (
+              <Alert variant="destructive" className="mb-2">
+                <AlertDescription>
+                  {unclaimedItems.length} item(s) still have no one claiming them (
+                  {unclaimedItems.map((it) => it.name).join(", ")}) — every item needs a claimant
+                  before the Tab can close. Head to the Order page to assign them.
+                </AlertDescription>
+              </Alert>
+            )}
             <Button
               onClick={() =>
-                readyToClose && unresolvedClarifications.length === 0
+                readyToClose && unresolvedClarifications.length === 0 && unclaimedItems.length === 0
                   ? closeTab()
                   : setShowCloseWarning(true)
               }
             >
               Close the Tab
             </Button>
+            {closeError && (
+              <Alert variant="destructive" className="mt-2">
+                <AlertDescription>{closeError}</AlertDescription>
+              </Alert>
+            )}
             {showCloseWarning && (
               <Alert variant="destructive" className="mt-2">
                 <AlertDescription>
@@ -246,15 +268,23 @@ export default function LedgerPage() {
                     `${unresolvedClarifications.length} item(s) still have low-confidence flags (${unresolvedClarifications
                       .map((it) => it.name)
                       .join(", ")}) — they'll be used as-is if you close now. `}
-                  Close anyway?
-                  <div className="mt-2 flex gap-2">
-                    <Button size="sm" variant="destructive" onClick={closeTab}>
-                      Close anyway
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setShowCloseWarning(false)}>
-                      Cancel
-                    </Button>
-                  </div>
+                  {unclaimedItems.length > 0
+                    ? `${unclaimedItems.length} item(s) are unclaimed (${unclaimedItems
+                        .map((it) => it.name)
+                        .join(", ")}) — claim everything before closing; this can't be overridden.`
+                    : (
+                      <>
+                        Close anyway?
+                        <div className="mt-2 flex gap-2">
+                          <Button size="sm" variant="destructive" onClick={closeTab}>
+                            Close anyway
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setShowCloseWarning(false)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </>
+                    )}
                 </AlertDescription>
               </Alert>
             )}

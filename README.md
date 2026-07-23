@@ -5,18 +5,18 @@ for the full product/technical spec and [`PROGRESS.md`](./PROGRESS.md) for build
 
 ## Stack
 
-- **Framework:** Next.js (App Router, TypeScript, Tailwind)
-- **Database:** Prisma ORM — SQLite locally, Postgres (Neon) in production
-- **Real-time:** Pusher
-- **Auth:** NextAuth.js
+- **Framework:** Next.js (App Router, TypeScript, Tailwind, shadcn/ui)
+- **Database:** Prisma ORM — Postgres (Neon), including in local dev
+- **Real-time:** Pusher (falls back to 5-second polling if unconfigured)
+- **Auth:** NextAuth.js (credentials + guest identities)
 - **LLM:** OpenAI (vision-capable model) for receipt parsing
 
 ## Getting Started
 
 ```bash
 npm install
-cp .env.example .env   # already done for local dev; fill in real keys before deploying
-npx prisma migrate dev # applies schema, creates local dev.db
+cp .env.example .env   # fill in real values — see below
+npx prisma migrate dev # applies schema against DATABASE_URL
 npm run dev
 ```
 
@@ -24,22 +24,70 @@ App runs at http://localhost:3000.
 
 ### Environment variables
 
-See `.env.example` for the full list. Locally, everything works with placeholder
-values except features that call external services directly:
+See `.env.example` for the full list, and `AUTH_SECRET`/Pusher setup below for how
+to get real values. The app degrades gracefully without some of these, but not others:
 
-- **Receipt parsing** needs a real `OPENAI_API_KEY` (Phase 1).
-- **Live claim sync** needs real Pusher credentials (Phase 2).
-- **Login** needs a real `AUTH_SECRET` before deploying (Phase 3+).
+- **`DATABASE_URL` / `DIRECT_URL`** — **required**, the app won't start without a
+  working Postgres connection (see Database section below).
+- **`AUTH_SECRET`** — **required for login/signup to work at all**. Without it,
+  NextAuth throws `MissingSecret` at request time (this is the most common
+  "auth doesn't work in production" bug — see the callout below).
+- **`OPENAI_API_KEY`** — needed for receipt parsing (Phase 1). Without it, the
+  app degrades to manual item entry.
+- **Pusher vars** (`PUSHER_APP_ID`, `PUSHER_KEY`, `PUSHER_SECRET`,
+  `PUSHER_CLUSTER`, `NEXT_PUBLIC_PUSHER_KEY`, `NEXT_PUBLIC_PUSHER_CLUSTER`) —
+  needed for instant live sync between devices. Without them, the app silently
+  falls back to polling every 5 seconds — still works, just not instant.
+
+#### `AUTH_SECRET` — the #1 cause of broken login in production
+
+If Vercel logs show `[auth][error] MissingSecret: Please define a secret`,
+`AUTH_SECRET` isn't set (or isn't set for the right environment) in your
+deployment:
+
+1. Generate one locally: `npx auth secret` (or `openssl rand -base64 32`).
+2. In Vercel → Project → Settings → Environment Variables, add `AUTH_SECRET`
+   with that value for **Production** (and **Preview**, if you use preview
+   deployments — each environment needs its own env vars set explicitly).
+3. Redeploy (env var changes don't apply to already-running deployments).
+
+#### Setting up Pusher (real-time claim sync)
+
+Pusher is what makes item claims appear instantly on everyone else's screen
+instead of waiting up to 5 seconds for the next poll. To wire it up:
+
+1. Sign up at [pusher.com](https://pusher.com) (free tier is plenty for this app).
+2. Create a new **Channels** app (not Beams/Chatkit) — pick any name/cluster
+   region close to your users.
+3. Open the app's **App Keys** tab. You'll see four values: `app_id`, `key`,
+   `secret`, `cluster`.
+4. Map them into your env vars:
+   - `PUSHER_APP_ID` = `app_id`
+   - `PUSHER_KEY` = `key`
+   - `PUSHER_SECRET` = `secret`
+   - `PUSHER_CLUSTER` = `cluster` (e.g. `us2`, `ap2`)
+   - `NEXT_PUBLIC_PUSHER_KEY` = same value as `PUSHER_KEY` (the client needs
+     this to subscribe to channels — it's public by design, unlike the secret)
+   - `NEXT_PUBLIC_PUSHER_CLUSTER` = same value as `PUSHER_CLUSTER`
+5. Set all six locally in `.env`, and in Vercel's env vars for Production
+   (and Preview) if deploying.
+6. Restart `npm run dev` (or redeploy) — `src/lib/pusher.ts` /
+   `src/lib/pusherClient.ts` detect these automatically via
+   `isRealtimeConfigured()`; no code changes needed.
+7. Verify it worked: open a Table in two browser windows, claim an item in
+   one, and confirm it appears in the other without a manual refresh.
 
 ### Database
 
-Local dev uses SQLite (`prisma/dev.db`, gitignored). To move to Neon Postgres for
-deployment:
+The app runs on Postgres (Neon) everywhere, including local dev — there's no
+SQLite fallback anymore. To set up a database:
 
-1. Create a Neon project and copy its connection string.
-2. Set `DATABASE_URL` to the Neon connection string (locally or in Vercel env vars).
-3. Change `provider = "sqlite"` to `provider = "postgresql"` in `prisma/schema.prisma`.
-4. Run `npx prisma migrate dev` (or `migrate deploy` in CI/CD) against the new URL.
+1. Create a Neon project at [neon.tech](https://neon.tech) and open its
+   "Connect" panel.
+2. Copy the **pooled** connection string (has `-pooler` in the hostname) into
+   `DATABASE_URL`, and the **direct** connection string into `DIRECT_URL`
+   (Prisma Migrate needs a direct connection; the running app uses pooled).
+3. Run `npx prisma migrate dev` to apply the schema.
 
 ## Project Structure
 
@@ -59,59 +107,34 @@ src/components/        React components
 
 ## Deployment (Vercel + Neon)
 
-1. **Create a Neon Postgres database.**
-   - Sign up at neon.tech, create a project, and open its "Connect" panel.
-   - Copy the **pooled** connection string (the one with `-pooler` in the
-     hostname) — this becomes `DATABASE_URL`.
-   - Copy the **direct** (unpooled) connection string too — this becomes
-     `DIRECT_URL`. Prisma Migrate needs a direct connection; the running app
-     uses the pooled one.
+1. **Create a Neon Postgres database** (see Database section above) if you
+   haven't already, and note `DATABASE_URL`/`DIRECT_URL`.
 
-2. **Switch the schema to Postgres.**
-   - In `prisma/schema.prisma`, change the `datasource db` block:
-     ```prisma
-     datasource db {
-       provider  = "postgresql"
-       url       = env("DATABASE_URL")
-       directUrl = env("DIRECT_URL")
-     }
-     ```
-   - With `DATABASE_URL`/`DIRECT_URL` pointed at Neon in your local `.env`,
-     run a fresh migration against Postgres:
-     ```bash
-     npx prisma migrate dev --name init_postgres
-     ```
-     (No schema *model* changes are needed beyond the datasource block — every
-     model was written to avoid SQLite-only features specifically so this
-     swap is mechanical. The old SQLite migration history in
-     `prisma/migrations/` stays as a record of local dev history; Postgres
-     gets its own migration run from here.)
+2. **Push the repo to GitHub** (Vercel deploys from a git provider).
 
-3. **Push the repo to GitHub** (Vercel deploys from a git provider).
-
-4. **Import the project into Vercel** (vercel.com → Add New → Project → import
+3. **Import the project into Vercel** (vercel.com → Add New → Project → import
    the repo). Vercel auto-detects Next.js; no custom build command is needed
    (`postinstall` already runs `prisma generate` for you — see `package.json`).
 
-5. **Set environment variables** in the Vercel project settings (Production —
-   and Preview, if you want preview deployments to work too):
+4. **Set environment variables** in the Vercel project settings for
+   **Production and Preview both** (each environment needs its own values —
+   a var set only under Production won't apply to preview deployments):
    - `DATABASE_URL`, `DIRECT_URL` — from step 1
-   - `AUTH_SECRET` — a real secret (`npx auth secret`), **not** the local dev
-     placeholder
+   - `AUTH_SECRET` — a real secret (`npx auth secret`), **required** — see the
+     `MissingSecret` callout above if login breaks after deploying
    - `NEXTAUTH_URL` — your Vercel deployment URL (e.g. `https://tably.vercel.app`)
    - `OPENAI_API_KEY`, `OPENAI_VISION_MODEL` — a real OpenAI key for receipt
      parsing to work (the app degrades gracefully to manual entry without one,
      but that defeats the point of a live demo)
    - `PUSHER_APP_ID`, `PUSHER_KEY`, `PUSHER_SECRET`, `PUSHER_CLUSTER`,
-     `NEXT_PUBLIC_PUSHER_KEY`, `NEXT_PUBLIC_PUSHER_CLUSTER` — from a free
-     Pusher Channels app (pusher.com); without these, real-time sync silently
-     falls back to 5-second polling instead of instant updates, which still
-     works but isn't the intended demo experience
+     `NEXT_PUBLIC_PUSHER_KEY`, `NEXT_PUBLIC_PUSHER_CLUSTER` — see the Pusher
+     setup steps above; without these, real-time sync silently falls back to
+     5-second polling instead of instant updates
 
-6. **Deploy.** Vercel will run `npm install` (triggering `prisma generate` via
+5. **Deploy.** Vercel will run `npm install` (triggering `prisma generate` via
    `postinstall`) then `npm run build`.
 
-7. **Smoke test the live URL**: create a Table, open it in a second
+6. **Smoke test the live URL**: create a Table, open it in a second
    browser/incognito window, join, claim an item, and confirm the update
    appears on the first window without a manual refresh (that's Pusher
    working) — then sign up, close a Tab, and check `/history` and `/balances`.

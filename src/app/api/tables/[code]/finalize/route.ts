@@ -26,6 +26,18 @@ export async function POST(
     return NextResponse.json({ error: "This Table is already closed." }, { status: 409 });
   }
 
+  const unclaimedItems = bill.items.filter((it) => it.claims.length === 0);
+  if (unclaimedItems.length > 0) {
+    return NextResponse.json(
+      {
+        error: `${unclaimedItems.length} item(s) still have no one claiming them (${unclaimedItems
+          .map((it) => it.name)
+          .join(", ")}) — everything needs a claimant before the Tab can close.`,
+      },
+      { status: 400 },
+    );
+  }
+
   const participantIds = bill.participants.map((p) => p.id);
   const itemsTotal = bill.items.reduce((sum, it) => sum + it.price * it.quantity, 0);
   const taxTipTotal = bill.taxAmount + bill.tipAmount;
