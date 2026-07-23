@@ -228,13 +228,69 @@ Implementation notes:
   switching would break local development in this sandbox, which has no
   Postgres available.
 
-## Overall Status: All 7 phases (0–6) are code-complete and verified locally
-(lint, build, and extensive end-to-end curl smoke tests across every
-flow — parsing/fallback, table creation, joining, claiming, auto-sharing,
-capacity limits, close/reopen, auth/signup/login, history, balances, guest
-merge, clarification messages, payer edits, sync-status). The only remaining
-step is the live Vercel/Neon deployment itself, which needs your credentials
-and is documented above.
+## Phase 7 — UI Restructure (Ledger/Order split, shadcn/ui, design pass)
+**Status:** ✅ Done — implements `tably-ui-restructure-plan.md` in full.
+- [x] Split the merged `/table/[code]` page into two routes sharing one
+      layout: **Ledger** (`/table/[code]`, receipt/summary/participants/
+      settlement + chronological activity feed) and **Your Order**
+      (`/table/[code]/order`, claiming, add-missed-item, save)
+- [x] Adopted shadcn/ui as the component layer (`button`, `input`, `label`,
+      `badge`, `alert`, `tabs`, `textarea`, `separator`, `dialog`, `sonner`,
+      `tooltip`, `skeleton`) and replaced all `prompt()`/`window.confirm()`
+      interactions with real dialogs (`EditItemDialog`, `EditPayerDialog`,
+      `EditHeadcountDialog`)
+- [x] Warm "receipt paper" visual design pass: cream background, terracotta
+      primary/accent, dedicated `--owe`/`--owed` semantic colors for
+      settlement direction, ticket-stub `.table-code-badge`, and a
+      `.link-affordance` utility so every clickable non-button element gets
+      a consistent hover/focus cue (bug 3.3)
+- [x] Bug fixes: numeric leading-zero input (3.1, all price/quantity/headcount
+      fields), missing field labels (3.2, shadcn `Label` everywhere), missing
+      clickable affordances (3.3), noisy Ledger feed hiding `CLAIM_SAVED`
+      events (3.4), sticky receipt/summary + independently scrollable
+      chronological feed (3.5)
+- [x] Responsive pass at 375 / 768 / 1024 / 1440px — bottom-anchored "Save my
+      order" bar on mobile, two-column Ledger grid collapsing to a single
+      stack, receipt/summary height-capped so it never eats the whole
+      mobile viewport
+
+Implementation notes:
+- New shared `TableProvider`/`useTable()` context (`table-context.tsx`) holds
+  identity, Pusher subscription + polling fallback, and the retry-once
+  `authedFetch` helper — both routes and the layout consume it instead of
+  each re-implementing fetch/sync logic.
+- Route-based nav (Ledger | Your Order) intentionally uses plain styled
+  `<Link>`s in `layout.tsx`, not shadcn's `Tabs` component — these are two
+  separate pages, not client-side tab panels, so ARIA tabs semantics would
+  be incorrect here (a deliberate, documented deviation from the plan's
+  suggestion).
+- Post-join redirect now sends people to `/table/[code]/order` (there to
+  claim items) instead of the old merged page; the "table already closed"
+  error path still redirects to the Ledger, since there's nothing left to
+  claim once closed.
+- **Found and fixed during review:** the Ledger's left column originally put
+  the receipt/summary *and* Participants/Close-the-Tab/settlement inside one
+  shared `max-h-[40vh]` scroll box. On mobile viewports this visually
+  clipped the Participants and Close-the-Tab cards mid-content. Only the
+  receipt image + parsed-items summary should be height-capped per the
+  plan's intent — Participants/settlement now flow normally below it,
+  never clipped.
+- Verified with Playwright across 375/768/1024/1440px (zero console/page
+  errors at every breakpoint) plus an interactive smoke test: claiming an
+  item, adding a missed item (confirming the leading-zero fix live: typing
+  "0" then "50" yields "50", not "050"), saving an order, and the full
+  Close the Tab → warning → confirm → Final Split/settlement → Reopen flow
+  — all round-tripped correctly against the real API and re-rendered
+  correctly on refresh.
+
+## Overall Status: All 8 phases (0–7) are code-complete and verified locally
+(lint, build, and extensive end-to-end curl + Playwright smoke tests across
+every flow — parsing/fallback, table creation, joining, claiming,
+auto-sharing, capacity limits, close/reopen, auth/signup/login, history,
+balances, guest merge, clarification messages, payer edits, sync-status,
+and the new Ledger/Order UI split across all target breakpoints). The only
+remaining step is the live Vercel/Neon deployment itself, which needs your
+credentials and is documented above.
 
 ---
 
@@ -255,3 +311,6 @@ _Notes on any deviations from the original `project-plan.md` made during impleme
 - **Found during the Phase 3→4 review: Manual Correction (`PATCH /api/tables/[code]/items/[itemId]`) had no frontend UI at all** despite being fully implemented API-side back in Phase 2 — the Claim page only ever called it implicitly via the plan for low-confidence items but never actually rendered an edit control. Fixed as part of Phase 4's clarification-message work, since a "confirm/fix" affordance was needed there anyway; also added a general "Edit" action on every item, not just low-confidence ones, so this feature is now actually reachable from the UI.
 - **Connectivity handling (plan §9 Flow 8) is a retry-once + visible sync-status indicator, not a full offline queue.** A true offline queue (persist pending actions locally, replay them on reconnect, resolve conflicts against server state that moved on) is a meaningfully bigger feature — arguably its own phase — for marginal benefit at this MVP's scope, where a claim/save/edit is a small, cheap, idempotent-ish POST that's safe to just retry immediately. The current behavior (retry once, then show a persistent "⚠️ Couldn't sync" until the next successful action) satisfies the plan's actual stated concern ("never let an action look saved when it never synced") without the added complexity — flagged as an explicit scope cut, not an oversight, worth a paragraph in the thesis's future-work section.
 - **Similarly, Manual Correction's "Edit" also found during Phase 4→5 review: editable "who paid" had an API since Phase 2 but no UI until Phase 5** — same pattern as the item-edit gap, now fixed with a lightweight prompt-based control consistent with the rest of the app's MVP-level interaction style (headcount edit uses the same `prompt()` pattern).
+- **The old prompt()/window.confirm()-based edit controls (item, payer, headcount) from Phases 4–5 were replaced wholesale with shadcn `Dialog`-based forms** as part of the Phase 7 restructure, rather than left in place — `prompt()` has no labels, no validation, and doesn't match the rest of the design system, and the restructure's own Part 3.2 bug fix (missing field labels) required a proper form control anyway.
+- **`EditItemDialog`/`EditHeadcountDialog` use lazy `useState` initializers + a parent-supplied `key` prop instead of a `useEffect` that syncs props into state.** This repo's eslint config (`react-hooks/set-state-in-effect`) forbids the latter pattern; remounting via `key` when the target item/open-state changes is the idiomatic React alternative and avoids an extra render.
+- **Base UI's `Button` (which shadcn's `button.tsx` wraps) requires `nativeButton={false}` whenever `render={<a/>}`/`render={<Link/>}` is used** to act as a link — otherwise it logs a console warning about losing native button semantics. Applied to the NavBar sign-up button and the Your Order page's sign-up nudge link.
