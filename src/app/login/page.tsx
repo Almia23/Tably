@@ -4,6 +4,12 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
+import { LogIn } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
 export default function LoginPage() {
   return (
@@ -41,44 +47,58 @@ function LoginForm() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-4 py-16">
-      <h1 className="mb-6 text-2xl font-semibold">Log in</h1>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <label className="flex flex-col gap-1 text-sm">
-          Email
-          <input
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="rounded-md border border-black/15 px-3 py-2 dark:border-white/20 dark:bg-transparent"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          Password
-          <input
-            type="password"
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="rounded-md border border-black/15 px-3 py-2 dark:border-white/20 dark:bg-transparent"
-          />
-        </label>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded-md bg-black px-4 py-2 text-white disabled:opacity-50 dark:bg-white dark:text-black"
-        >
-          {loading ? "Logging in…" : "Log in"}
-        </button>
-      </form>
-      <p className="mt-4 text-sm text-black/60 dark:text-white/60">
-        No account?{" "}
-        <Link href="/signup" className="underline">
-          Sign up
-        </Link>
-      </p>
+    <main className="relative flex flex-1 items-center justify-center overflow-hidden px-4 py-16">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-16 left-1/2 size-72 -translate-x-1/2 rounded-full bg-primary/20 blur-3xl"
+      />
+      <Card className="relative w-full max-w-sm">
+        <CardHeader>
+          <span className="mb-1 flex size-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <LogIn className="size-4.5" />
+          </span>
+          <CardTitle className="text-2xl">Log in</CardTitle>
+          <CardDescription>Welcome back — split your next bill.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="login-email">Email</Label>
+              <Input
+                id="login-email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="login-password">Password</Label>
+              <Input
+                id="login-password"
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+            <Button type="submit" disabled={loading} className="mt-1">
+              {loading ? "Logging in…" : "Log in"}
+            </Button>
+          </form>
+          <p className="mt-4 text-center text-sm text-muted-foreground">
+            No account?{" "}
+            <Link href="/signup" className="link-affordance text-foreground">
+              Sign up
+            </Link>
+          </p>
+        </CardContent>
+      </Card>
     </main>
   );
 }
