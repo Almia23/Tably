@@ -30,6 +30,12 @@ export type Settlement = {
   settled: boolean;
 };
 
+export type Payment = {
+  id: string;
+  participantId: string;
+  amount: number;
+};
+
 export type AuditLog = {
   id: string;
   participantId: string | null;
@@ -53,6 +59,7 @@ export type TableState = {
   items: Item[];
   settlements: Settlement[];
   auditLogs: AuditLog[];
+  payments: Payment[];
 };
 
 export type SyncStatus = "idle" | "saving" | "synced" | "error";

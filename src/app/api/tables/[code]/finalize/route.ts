@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { simplifyDebts, type Balance } from "@/lib/debt";
+import { simplifyDebts, individualDebtsMultiPayer, type Balance } from "@/lib/debt";
 import { logAudit } from "@/lib/auditLog";
 import { broadcast } from "@/lib/pusher";
 
@@ -19,19 +19,17 @@ export async function POST(
 
   const bill = await prisma.bill.findUnique({
     where: { tableCode: code.toUpperCase() },
-    include: { participants: true, items: { include: { claims: true } } },
+    include: { participants: true, items: { include: { claims: true } }, payments: true },
   });
   if (!bill) return NextResponse.json({ error: "Table not found" }, { status: 404 });
   if (bill.status === "CLOSED") {
     return NextResponse.json({ error: "This Table is already closed." }, { status: 409 });
   }
-  if (!bill.paidByParticipantId) {
-    return NextResponse.json({ error: "No payer set for this Table." }, { status: 400 });
-  }
 
   const participantIds = bill.participants.map((p) => p.id);
   const itemsTotal = bill.items.reduce((sum, it) => sum + it.price * it.quantity, 0);
   const taxTipTotal = bill.taxAmount + bill.tipAmount;
+  const billTotal = itemsTotal + taxTipTotal;
 
   const netBalance = new Map<string, number>(participantIds.map((id) => [id, 0]));
 
@@ -54,29 +52,54 @@ export async function POST(
     netBalance.set(pid, (netBalance.get(pid) ?? 0) - taxTipShare);
   }
 
-  // "Individual" view: exact per-person total owed to the payer (items + tax/tip),
-  // snapshotted before crediting the payer for the full bill (see Phase 1 note
-  // in src/lib/debt.ts on why this equals "Simplified" for single-payer bills).
-  const individual = participantIds
-    .filter((pid) => pid !== bill.paidByParticipantId)
-    .map((pid) => ({
-      fromParticipantId: pid,
-      toParticipantId: bill.paidByParticipantId!,
-      amount: Math.round(-(netBalance.get(pid) ?? 0) * 100) / 100,
-    }))
-    .filter((t) => t.amount > 0.01);
+  // Snapshot each participant's total consumption cost (items + tax/tip
+  // share) before crediting payments — this is what the "Individual" view
+  // attributes across payers below.
+  const consumption = participantIds.map((pid) => ({
+    participantId: pid,
+    amountOwed: -(netBalance.get(pid) ?? 0),
+  }));
 
-  const billTotal = itemsTotal + taxTipTotal;
-  netBalance.set(
-    bill.paidByParticipantId,
-    (netBalance.get(bill.paidByParticipantId) ?? 0) + billTotal,
-  );
+  // Multi-payer support (project-plan.md §2 feature 7 extended): prefer
+  // explicit Payment rows if any exist; otherwise fall back to the legacy
+  // single paidByParticipantId field (Tables created before this feature, or
+  // that never had multi-payer set up) as an implicit full-amount payment.
+  const payments =
+    bill.payments.length > 0
+      ? bill.payments.map((p) => ({ participantId: p.participantId, amount: p.amount }))
+      : bill.paidByParticipantId
+        ? [{ participantId: bill.paidByParticipantId, amount: billTotal }]
+        : [];
+
+  if (payments.length === 0) {
+    return NextResponse.json({ error: "No payer set for this Table." }, { status: 400 });
+  }
+
+  const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+  if (Math.abs(totalPaid - billTotal) > 0.01) {
+    return NextResponse.json(
+      {
+        error: `Payments (₹${totalPaid.toFixed(2)}) don't add up to the bill total (₹${billTotal.toFixed(2)}) — fix who paid what before closing.`,
+      },
+      { status: 400 },
+    );
+  }
+
+  // Credit each payer for what they actually fronted.
+  for (const payment of payments) {
+    netBalance.set(payment.participantId, (netBalance.get(payment.participantId) ?? 0) + payment.amount);
+  }
 
   const balances: Balance[] = participantIds.map((id) => ({
     participantId: id,
     netBalance: netBalance.get(id) ?? 0,
   }));
   const simplified = simplifyDebts(balances);
+  // "Individual" view: everyone's full consumption cost attributed directly
+  // to whoever paid, proportional to each payer's share of the bill — this
+  // is a distinct (and typically longer) transaction list than Simplified's
+  // minimized graph once there's more than one payer.
+  const individual = individualDebtsMultiPayer(consumption, payments);
 
   await prisma.$transaction(async (tx) => {
     await tx.bill.update({

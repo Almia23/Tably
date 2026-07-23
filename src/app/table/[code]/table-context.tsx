@@ -24,7 +24,26 @@ type TableContextValue = {
     method?: "POST" | "PATCH",
   ) => Promise<Response | null>;
   nameOf: (id: string | null) => string;
+  colorClassOf: (id: string | null) => string;
 };
+
+// Stable per-participant color palette for name badges/chips, so the same
+// person always shows the same color everywhere a name appears (item
+// claims, participant list, settlement rows, activity feed). Written as
+// complete literal class strings (not built with template interpolation)
+// so Tailwind's JIT compiler can detect and generate them.
+const PARTICIPANT_COLORS = [
+  "bg-rose-500/15 text-rose-700 dark:text-rose-300",
+  "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+  "bg-lime-500/15 text-lime-700 dark:text-lime-300",
+  "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+  "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300",
+  "bg-blue-500/15 text-blue-700 dark:text-blue-300",
+  "bg-violet-500/15 text-violet-700 dark:text-violet-300",
+  "bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300",
+  "bg-pink-500/15 text-pink-700 dark:text-pink-300",
+  "bg-orange-500/15 text-orange-700 dark:text-orange-300",
+];
 
 const TableContext = createContext<TableContextValue | null>(null);
 
@@ -133,9 +152,18 @@ export function TableProvider({
     [table],
   );
 
+  const colorClassOf = useCallback(
+    (id: string | null) => {
+      const idx = table?.participants.findIndex((p) => p.id === id) ?? -1;
+      if (idx < 0) return "bg-muted text-muted-foreground";
+      return PARTICIPANT_COLORS[idx % PARTICIPANT_COLORS.length];
+    },
+    [table],
+  );
+
   return (
     <TableContext.Provider
-      value={{ code, table, loading, error, identity, refresh, syncStatus, authedFetch, nameOf }}
+      value={{ code, table, loading, error, identity, refresh, syncStatus, authedFetch, nameOf, colorClassOf }}
     >
       {children}
     </TableContext.Provider>

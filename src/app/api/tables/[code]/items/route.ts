@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/auditLog";
 import { broadcast } from "@/lib/pusher";
 import { verifyParticipant } from "@/lib/verifyParticipant";
+import { toTitleCase } from "@/lib/textCase";
 
 const AddItemSchema = z.object({
   participantId: z.string(),
@@ -44,7 +45,7 @@ export async function POST(
   const item = await prisma.billItem.create({
     data: {
       billId: bill.id,
-      name,
+      name: toTitleCase(name),
       price,
       quantity,
       addedByParticipantId: participantId,
@@ -56,7 +57,7 @@ export async function POST(
     participantId,
     actionType: "ITEM_ADDED",
     targetId: item.id,
-    details: { name, price, quantity },
+    details: { name: item.name, price, quantity },
   });
 
   await broadcast(bill.tableCode, "item-added", { item: { ...item, claims: [] } });

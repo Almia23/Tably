@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/auditLog";
 import { broadcast } from "@/lib/pusher";
 import { verifyParticipant } from "@/lib/verifyParticipant";
+import { toTitleCase } from "@/lib/textCase";
 
 const EditItemSchema = z.object({
   participantId: z.string(),
@@ -50,7 +51,7 @@ export async function PATCH(
 
   const updated = await prisma.billItem.update({
     where: { id: itemId },
-    data: { ...patch, lowConfidence: false }, // a manual edit resolves any low-confidence flag
+    data: { ...patch, name: patch.name ? toTitleCase(patch.name) : undefined, lowConfidence: false }, // a manual edit resolves any low-confidence flag
   });
 
   await logAudit({

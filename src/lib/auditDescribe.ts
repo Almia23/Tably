@@ -5,7 +5,24 @@ import type { AuditLog } from "@/types/table";
  * noisy "I'm done" actions that shouldn't clutter the shared feed (3.4 —
  * only events that change shared state belong in the Ledger; personal
  * actions with no side effect on anyone else's view are demoted/hidden).
+ *
+ * Returns structured "parts" instead of a plain string so the Ledger page
+ * can render participant names as colored PersonTag chips inline —
+ * matching the colored-name treatment used everywhere else names appear
+ * (item claims, Participants list, settlement rows).
  */
+
+export type AuditPart =
+  | { type: "text"; text: string }
+  | { type: "name"; participantId: string | null; fallback: string };
+
+function text(value: string): AuditPart {
+  return { type: "text", text: value };
+}
+
+function name(participantId: string | null, fallback = "Someone"): AuditPart {
+  return { type: "name", participantId, fallback };
+}
 
 function safeJson(raw: string): Record<string, unknown> {
   try {
@@ -26,18 +43,15 @@ export function isFeedVisible(log: AuditLog): boolean {
   return !HIDDEN_FROM_FEED.has(log.actionType);
 }
 
-export function describeAudit(
-  log: AuditLog,
-  nameOf: (id: string | null) => string,
-): string {
+export function describeAudit(log: AuditLog): AuditPart[] {
   const details = log.details ? safeJson(log.details) : {};
   switch (log.actionType) {
     case "BILL_CREATED":
-      return `Table created (expecting ${details.expectedParticipants ?? "?"} people)`;
+      return [text(`Table created (expecting ${details.expectedParticipants ?? "?"} people)`)];
     case "PARTICIPANT_JOINED":
-      return `${details.displayName ?? nameOf(log.participantId)} joined`;
+      return [name(log.participantId, details.displayName as string | undefined), text("joined")];
     case "ITEM_ADDED":
-      return `${nameOf(log.participantId)} added "${details.name}"`;
+      return [name(log.participantId), text(`added "${details.name}"`)];
     case "ITEM_EDITED": {
       const before = (details.before as Record<string, unknown>) ?? {};
       const after = (details.after as Record<string, unknown>) ?? {};
@@ -45,37 +59,56 @@ export function describeAudit(
         .filter(([, v]) => v !== undefined)
         .map(([k, v]) => `${k}: ${before[k]} → ${v}`);
       return changes.length > 0
-        ? `${nameOf(log.participantId)} corrected an item (${changes.join(", ")})`
-        : `${nameOf(log.participantId)} confirmed an item was correct`;
+        ? [name(log.participantId), text(`corrected an item (${changes.join(", ")})`)]
+        : [name(log.participantId), text("confirmed an item was correct")];
     }
     case "CLAIM_SAVED":
-      return `${nameOf(log.participantId)} saved their order`;
+      return [name(log.participantId), text("saved their order")];
     case "CLAIM_EDITED":
-      return `${nameOf(log.participantId)} updated a claim`;
-    case "ITEM_BECAME_SHARED":
-      return `An item is now shared between ${((details.participantIds as string[]) ?? [])
-        .map((id: string) => nameOf(id))
-        .join(", ")}`;
-    case "PARTICIPANT_COUNT_CHANGED":
-      return `Expected headcount changed to ${details.expectedParticipants}`;
-    case "PAYER_CHANGED":
-      return `${details.displayName ?? "Someone"} is now marked as having paid`;
-    case "TAB_CLOSED":
-      return "Final split generated — Tab closed";
-    case "TAB_REOPENED":
-      return "Tab reopened";
-    case "SETTLEMENT_MARKED_PAID": {
-      const actorName = (details.displayName as string | undefined) ?? nameOf(log.participantId);
-      return `${actorName} marked a settlement of ₹${details.amount ?? "?"} as paid`;
+      return [name(log.participantId), text("updated a claim")];
+    case "ITEM_BECAME_SHARED": {
+      const ids = (details.participantIds as string[]) ?? [];
+      const parts: AuditPart[] = [text("An item is now shared between")];
+      ids.forEach((id, i) => {
+        parts.push(name(id));
+        if (i < ids.length - 1) parts.push(text(","));
+      });
+      return parts;
     }
+    case "PARTICIPANT_COUNT_CHANGED":
+      return [text(`Expected headcount changed to ${details.expectedParticipants}`)];
+    case "PAYER_CHANGED": {
+      const payments = details.payments as
+        | { participantId: string; amount: number; displayName?: string }[]
+        | undefined;
+      if (payments && payments.length > 0) {
+        const parts: AuditPart[] = [text("Paid by")];
+        payments.forEach((p, i) => {
+          parts.push(name(p.participantId, p.displayName));
+          parts.push(text(`(₹${p.amount.toFixed(2)})${i < payments.length - 1 ? "," : ""}`));
+        });
+        return parts;
+      }
+      // Legacy single-payer log shape (before multi-payer support).
+      return [name(null, details.displayName as string | undefined), text("is now marked as having paid")];
+    }
+    case "TAB_CLOSED":
+      return [text("Final split generated — Tab closed")];
+    case "TAB_REOPENED":
+      return [text("Tab reopened")];
+    case "SETTLEMENT_MARKED_PAID":
+      return [
+        name(log.participantId, details.displayName as string | undefined),
+        text(`marked a settlement of ₹${details.amount ?? "?"} as paid`),
+      ];
     case "CLARIFICATION_RAISED":
-      return `Low confidence on "${details.name}" — needs a quick check`;
+      return [text(`Low confidence on "${details.name}" — needs a quick check`)];
     case "CLARIFICATION_RESOLVED":
-      return `"${details.name}" confirmed`;
+      return [text(`"${details.name}" confirmed`)];
     case "PARTICIPANT_LINKED_ACCOUNT":
-      return `${nameOf(log.participantId)} linked their account`;
+      return [name(log.participantId), text("linked their account")];
     default:
-      return log.actionType;
+      return [text(log.actionType)];
   }
 }
 

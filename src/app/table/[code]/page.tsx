@@ -17,6 +17,7 @@ import {
   Check,
 } from "lucide-react";
 import { useTable } from "./table-context";
+import { PersonTag } from "./PersonTag";
 import { describeAudit, isFeedVisible, auditIconKind, type AuditIconKind } from "@/lib/auditDescribe";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -45,7 +46,7 @@ const ICONS: Record<AuditIconKind, React.ComponentType<{ className?: string }>> 
  * and the settlement summary once closed.
  */
 export default function LedgerPage() {
-  const { table, identity, nameOf, code, authedFetch, refresh } = useTable();
+  const { table, identity, nameOf, colorClassOf, code, authedFetch, refresh } = useTable();
   const [settlementView, setSettlementView] = useState<"SIMPLIFIED" | "INDIVIDUAL">("SIMPLIFIED");
   const [copyLabel, setCopyLabel] = useState<"idle" | "copied">("idle");
   const [showCloseWarning, setShowCloseWarning] = useState(false);
@@ -81,7 +82,11 @@ export default function LedgerPage() {
   const itemsTotal = table.items.reduce((sum, it) => sum + it.price * it.quantity, 0);
   const grandTotal = itemsTotal + table.taxAmount + table.tipAmount;
   const settlements = table.settlements;
-  const paidByName = table.paidByParticipantId ? nameOf(table.paidByParticipantId) : "unknown";
+  const payments = table.payments.length > 0
+    ? table.payments
+    : table.paidByParticipantId
+      ? [{ id: "legacy", participantId: table.paidByParticipantId, amount: grandTotal }]
+      : [];
   const joinedCount = table.participants.length;
   const allSaved = table.participants.every((p) => p.hasSaved);
   const readyToClose = joinedCount >= table.expectedParticipants && allSaved;
@@ -188,7 +193,12 @@ export default function LedgerPage() {
           <ul className="flex flex-wrap gap-1.5">
             {table.participants.map((p) => (
               <li key={p.id}>
-                <Badge variant={p.hasSaved ? "default" : "secondary"} className="gap-1">
+                <Badge
+                  variant="outline"
+                  className={`gap-1 border-transparent font-medium ${colorClassOf(p.id)} ${
+                    p.hasSaved ? "" : "opacity-60"
+                  }`}
+                >
                   {p.hasSaved && <Check className="size-3" />}
                   {p.displayName}
                 </Badge>
@@ -258,7 +268,15 @@ export default function LedgerPage() {
                 {copyLabel === "copied" ? "Copied!" : "Copy Split Summary"}
               </Button>
             </div>
-            <p className="mb-2 text-xs text-muted-foreground">Paid by {paidByName}</p>
+            <p className="mb-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
+              <span>Paid by</span>
+              {payments.map((pay) => (
+                <span key={pay.id} className="inline-flex items-center gap-1">
+                  <PersonTag name={nameOf(pay.participantId)} colorClass={colorClassOf(pay.participantId)} />
+                  <span className="tabular-nums">₹{pay.amount.toFixed(2)}</span>
+                </span>
+              ))}
+            </p>
 
             <div className="mb-2 flex gap-2 text-sm">
               <Button
@@ -292,14 +310,18 @@ export default function LedgerPage() {
                         iOwe ? "border-owe/30 bg-owe/5" : owedToMe ? "border-owed/30 bg-owed/5" : ""
                       }`}
                     >
-                      <span className="text-sm">
-                        <span className={iOwe ? "font-semibold text-owe" : ""}>
-                          {nameOf(s.fromParticipantId)}
-                        </span>{" "}
-                        owes{" "}
-                        <span className={owedToMe ? "font-semibold text-owed" : ""}>
-                          {nameOf(s.toParticipantId)}
-                        </span>
+                      <span className="flex flex-wrap items-center gap-1.5 text-sm">
+                        <PersonTag
+                          name={nameOf(s.fromParticipantId)}
+                          colorClass={colorClassOf(s.fromParticipantId)}
+                          className={iOwe ? "ring-2 ring-owe/50" : undefined}
+                        />
+                        <span className="text-muted-foreground">owes</span>
+                        <PersonTag
+                          name={nameOf(s.toParticipantId)}
+                          colorClass={colorClassOf(s.toParticipantId)}
+                          className={owedToMe ? "ring-2 ring-owed/50" : undefined}
+                        />
                       </span>
                       <span className="flex items-center gap-2">
                         <strong
@@ -352,7 +374,23 @@ export default function LedgerPage() {
                     <span className="absolute -left-[1.4rem] flex size-6 items-center justify-center rounded-full border bg-background">
                       <Icon className="size-3.5 text-primary" />
                     </span>
-                    <p className="text-sm">{describeAudit(log, nameOf)}</p>
+                    <p className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-sm">
+                      {describeAudit(log).map((part, i) =>
+                        part.type === "name" ? (
+                          <PersonTag
+                            key={i}
+                            name={part.participantId ? nameOf(part.participantId) : part.fallback}
+                            colorClass={
+                              part.participantId
+                                ? colorClassOf(part.participantId)
+                                : "bg-muted text-muted-foreground"
+                            }
+                          />
+                        ) : (
+                          <span key={i}>{part.text}</span>
+                        ),
+                      )}
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       {new Date(log.createdAt).toLocaleString(undefined, {
                         hour: "numeric",

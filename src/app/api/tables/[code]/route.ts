@@ -14,6 +14,7 @@ export async function GET(
       items: { include: { claims: true }, orderBy: { createdAt: "asc" } },
       settlements: true,
       auditLogs: { orderBy: { createdAt: "asc" } },
+      payments: { orderBy: { createdAt: "asc" } },
     },
   });
 

@@ -131,6 +131,7 @@ model Bill {
   items         BillItem[]
   settlements   Settlement[]
   auditLogs     AuditLog[]
+  payments      Payment[]
 }
 
 /// Unifies logged-in users and guests within the scope of one Bill so every
@@ -154,8 +155,28 @@ model Participant {
   settlementsOut Settlement[] @relation("SettlementFrom")
   settlementsIn  Settlement[] @relation("SettlementTo")
   auditLogs      AuditLog[]
+  payments       Payment[]
 
   @@unique([billId, guestToken])
+}
+
+/// One contribution towards paying the bill up front. Most bills have a
+/// single row here (one person fronted the whole thing), but supporting a
+/// list lets several people split payment itself — which is what makes the
+/// "Individual" settlement view meaningfully different from "Simplified"
+/// (each consumer ends up owing *each* payer their proportional share,
+/// rather than there being just one creditor to derive a trivial view from).
+model Payment {
+  id            String   @id @default(cuid())
+  billId        String
+  participantId String
+  amount        Float
+  createdAt     DateTime @default(now())
+
+  bill        Bill        @relation(fields: [billId], references: [id], onDelete: Cascade)
+  participant Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@unique([billId, participantId])
 }
 
 model BillItem {

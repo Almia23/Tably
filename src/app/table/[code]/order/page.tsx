@@ -9,6 +9,7 @@ import { useTable } from "../table-context";
 import { EditItemDialog } from "../EditItemDialog";
 import { EditPayerDialog } from "../EditPayerDialog";
 import { EditHeadcountDialog } from "../EditHeadcountDialog";
+import { PersonTag } from "../PersonTag";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,7 +24,7 @@ import type { Item } from "@/types/table";
  * live on the Ledger.
  */
 export default function OrderPage() {
-  const { table, identity, nameOf, code, authedFetch, refresh } = useTable();
+  const { table, identity, nameOf, colorClassOf, code, authedFetch, refresh } = useTable();
   const { data: session, status: sessionStatus } = useSession();
   const router = useRouter();
 
@@ -32,6 +33,7 @@ export default function OrderPage() {
   // (3.1) — Number(...) conversion only happens on submit.
   const [newItemName, setNewItemName] = useState("");
   const [newItemPrice, setNewItemPrice] = useState("");
+  const [newItemQty, setNewItemQty] = useState("1");
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [editPayerOpen, setEditPayerOpen] = useState(false);
   const [editHeadcountOpen, setEditHeadcountOpen] = useState(false);
@@ -53,7 +55,16 @@ export default function OrderPage() {
   }
 
   const me = identity ? table.participants.find((p) => p.id === identity.participantId) : null;
-  const paidByName = table.paidByParticipantId ? nameOf(table.paidByParticipantId) : "unknown";
+  const itemsTotal = table.items.reduce((sum, it) => sum + it.price * it.quantity, 0);
+  const grandTotal = itemsTotal + table.taxAmount + table.tipAmount;
+  const paidBySummary =
+    table.payments.length > 1
+      ? `${table.payments.length} people`
+      : table.payments.length === 1
+        ? nameOf(table.payments[0].participantId)
+        : table.paidByParticipantId
+          ? nameOf(table.paidByParticipantId)
+          : "unknown";
 
   async function toggleClaim(itemId: string) {
     if (!identity) return;
@@ -83,15 +94,17 @@ export default function OrderPage() {
   async function addItem() {
     if (!identity || !newItemName || !newItemPrice) return;
     const price = Number(newItemPrice);
+    const quantity = Math.max(1, Math.round(Number(newItemQty) || 1));
     if (Number.isNaN(price) || price < 0) return;
     const res = await authedFetch(`/api/tables/${code}/items`, {
       name: newItemName,
       price,
-      quantity: 1,
+      quantity,
     });
     if (res) {
       setNewItemName("");
       setNewItemPrice("");
+      setNewItemQty("1");
       toast.success(`Added "${newItemName}"`);
     } else {
       toast.error("Couldn't add item — check your connection.");
@@ -118,8 +131,8 @@ export default function OrderPage() {
     refresh();
   }
 
-  async function updatePayer(participantId: string) {
-    const res = await authedFetch(`/api/tables/${code}/payer`, { participantId }, "PATCH");
+  async function updatePayer(payments: { participantId: string; amount: number }[]) {
+    const res = await authedFetch(`/api/tables/${code}/payer`, { payments }, "PATCH");
     if (!res) toast.error("Couldn't update who paid.");
     refresh();
   }
@@ -135,7 +148,7 @@ export default function OrderPage() {
             Edit expected headcount
           </button>
           <button className="link-affordance text-muted-foreground" onClick={() => setEditPayerOpen(true)}>
-            Edit who paid ({paidByName})
+            Edit who paid ({paidBySummary})
           </button>
         </div>
       </div>
@@ -173,11 +186,19 @@ export default function OrderPage() {
                       </Badge>
                     )}
                   </span>
-                  <span className="text-xs text-muted-foreground">
-                    {item.claims.length > 0
-                      ? item.claims.map((c) => nameOf(c.participantId)).join(", ")
-                      : "Unclaimed — tap to claim"}
-                  </span>
+                  {item.claims.length > 0 ? (
+                    <span className="mt-1 flex flex-wrap gap-1">
+                      {item.claims.map((c) => (
+                        <PersonTag
+                          key={c.participantId}
+                          name={nameOf(c.participantId)}
+                          colorClass={colorClassOf(c.participantId)}
+                        />
+                      ))}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Unclaimed — tap to claim</span>
+                  )}
                 </span>
               </button>
               <div className="flex flex-col items-end gap-1">
@@ -237,6 +258,21 @@ export default function OrderPage() {
               onChange={(e) => {
                 const v = e.target.value;
                 if (/^\d*\.?\d*$/.test(v)) setNewItemPrice(v.replace(/^0+(?=\d)/, ""));
+              }}
+            />
+          </div>
+          <div className="flex w-full flex-col gap-1.5 sm:w-20">
+            <Label htmlFor="new-item-qty">Qty</Label>
+            <Input
+              id="new-item-qty"
+              type="text"
+              inputMode="numeric"
+              placeholder="1"
+              value={newItemQty}
+              onFocus={(e) => e.target.select()}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (/^\d*$/.test(v)) setNewItemQty(v.replace(/^0+(?=\d)/, ""));
               }}
             />
           </div>
@@ -319,7 +355,9 @@ export default function OrderPage() {
       />
       <EditPayerDialog
         participants={table.participants}
-        currentPayerId={table.paidByParticipantId}
+        currentPayments={table.payments}
+        legacyPayerId={table.paidByParticipantId}
+        grandTotal={grandTotal}
         open={editPayerOpen}
         onOpenChange={setEditPayerOpen}
         onSave={updatePayer}

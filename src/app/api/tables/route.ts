@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { generateTableCode } from "@/lib/tableCode";
 import { logAudit } from "@/lib/auditLog";
 import { auth } from "@/lib/auth";
+import { toTitleCase } from "@/lib/textCase";
 
 const ItemSchema = z.object({
   name: z.string().min(1),
@@ -96,7 +97,7 @@ export async function POST(req: NextRequest) {
       const created = await tx.billItem.create({
         data: {
           billId: bill.id,
-          name: item.name,
+          name: toTitleCase(item.name),
           price: item.price,
           quantity: item.quantity,
           lowConfidence: item.lowConfidence,

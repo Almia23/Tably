@@ -103,3 +103,56 @@ export function individualDebts(
     })
     .filter((t) => t.amount > EPSILON);
 }
+
+export type Payment = {
+  participantId: string;
+  amount: number;
+};
+
+export type Consumption = {
+  participantId: string;
+  amountOwed: number; // total items + tax/tip cost attributable to this person, before any payment credit
+};
+
+/**
+ * Multi-payer "Individual" view: unlike Simplified (which nets everyone's
+ * balance down to the minimum number of transactions), this attributes each
+ * person's full consumption cost directly to whoever actually fronted the
+ * money, split across payers proportional to how much of the bill they each
+ * paid. A payer never owes themself for their own share of what they
+ * consumed — that portion is implicitly covered by their own payment.
+ *
+ * With a single payer this reduces to "everyone who isn't the payer owes the
+ * payer their full consumption cost" (the same result Phase 1 computed
+ * directly from net balances) — so single-payer bills are unaffected. With
+ * multiple payers, this produces a distinct, more itemized transaction list
+ * than Simplified, which is the whole point of the two views existing.
+ */
+export function individualDebtsMultiPayer(
+  consumption: Consumption[],
+  payments: Payment[],
+): SimplifiedTransaction[] {
+  const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+  if (totalPaid <= 0) return [];
+
+  const pairwise = new Map<string, number>();
+  for (const c of consumption) {
+    if (c.amountOwed <= 0) continue;
+    for (const payment of payments) {
+      if (payment.amount <= 0) continue;
+      if (payment.participantId === c.participantId) continue; // never owe yourself
+      const share = payment.amount / totalPaid;
+      const amount = c.amountOwed * share;
+      if (amount <= 0) continue;
+      const key = `${c.participantId}->${payment.participantId}`;
+      pairwise.set(key, (pairwise.get(key) ?? 0) + amount);
+    }
+  }
+
+  return Array.from(pairwise.entries())
+    .map(([key, amount]) => {
+      const [fromParticipantId, toParticipantId] = key.split("->");
+      return { fromParticipantId, toParticipantId, amount: Math.round(amount * 100) / 100 };
+    })
+    .filter((t) => t.amount > EPSILON);
+}
